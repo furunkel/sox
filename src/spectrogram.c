@@ -65,6 +65,8 @@ typedef struct {
   /* Shared work area */
   double     * shared, * * shared_ptr;
 
+  sox_bool text;
+
   /* Per-channel work area */
   int        WORK;  /* Start of work area is marked by this dummy variable. */
   uint64_t   skip;
@@ -107,7 +109,7 @@ static int getopts(sox_effect_t * effp, int argc, char **argv)
   char const * next;
   int c;
   lsx_getopt_t optstate;
-  lsx_getopt_init(argc, argv, "+S:d:x:X:y:Y:z:Z:q:p:W:w:st:c:AarmlhTo:", NULL, lsx_getopt_flag_none, 1, &optstate);
+  lsx_getopt_init(argc, argv, "+S:d:x:X:y:Y:z:Z:q:p:W:w:st:c:AarmlehTo:", NULL, lsx_getopt_flag_none, 1, &optstate);
 
   p->dB_range = 120, p->spectrum_points = 249, p->perm = 1; /* Non-0 defaults */
   p->out_name = "spectrogram.png", p->comment = "Created by SoX";
@@ -129,6 +131,7 @@ static int getopts(sox_effect_t * effp, int argc, char **argv)
     case 'r': p->raw              = sox_true;   break;
     case 'm': p->monochrome       = sox_true;   break;
     case 'l': p->light_background = sox_true;   break;
+    case 'e': p->text             = sox_true;   break;
     case 'h': p->high_colour      = sox_true;   break;
     case 'T': p->truncate         = sox_true;   break;
     case 't': p->title            = optstate.arg; break;
@@ -394,6 +397,7 @@ static unsigned colour(priv_t const * p, double x)
   return fixed_palette + c;
 }
 
+
 static void make_palette(priv_t const * p, png_color * palette)
 {
   int i;
@@ -527,7 +531,7 @@ static int axis(double to, int max_steps, double * limit, char * * prefix)
 #define spectrum_width 14
 #define right 35
 
-static int stop(sox_effect_t * effp) /* only called, by end(), on flow 0 */
+static int stop_png(sox_effect_t * effp)
 {
   priv_t *    p        = (priv_t *) effp->priv;
   FILE *      file;
@@ -652,6 +656,64 @@ error: png_destroy_write_struct(&png, &png_info);
   free(pixels);
   free(p->dBfs);
   return SOX_SUCCESS;
+}
+
+static int stop_text(sox_effect_t * effp)
+{
+  priv_t *    p        = (priv_t *) effp->priv;
+  FILE *      file;
+  int         chans    = effp->in_signal.channels;
+  int         c_rows   = p->rows * chans + chans - 1;
+  int         rows     = p->raw? c_rows : below + c_rows + 30 + 20 * !!p->title;
+  int         cols     = p->raw? p->cols : left + p->cols + between + spectrum_width + right;
+  int         i, j, k, base, step, tick_len = 3 - p->no_axes;
+  char        text[200], * prefix;
+  double      limit;
+
+  free(p->shared);
+  if (p->using_stdout) {
+    file = stdout;
+  } else {
+    file = fopen(p->out_name, "wb");
+    if (!file) {
+      lsx_fail("failed to create `%s': %s", p->out_name, strerror(errno));
+      goto error;
+    }
+  }
+  lsx_debug("signal-max=%g", p->max);
+
+  /* Spectrogram */
+  for (k = 0; k < chans; ++k) {
+    priv_t * q = (priv_t *)(effp - effp->flow + k)->priv;
+    for (j = 0; j < p->rows; ++j) {
+      for (i = 0; i < p->cols; ++i) {
+        double val = q->dBfs[i*p->rows + j];
+        if(val < -p->dB_range) val = 0;
+        val /= p->dB_range;
+        const char *format;
+        if(i == 0) format = "%lf";
+        else format = " %lf";
+
+        fprintf(file, format, val);
+      }
+      fprintf(file, "\n");
+    }
+    fprintf(file, "\n\n");
+  }
+
+  if (!p->using_stdout)
+    fclose(file);
+error: 
+  free(p->dBfs);
+  return SOX_SUCCESS;
+}
+
+static int stop(sox_effect_t * effp) /* only called, by end(), on flow 0 */
+{
+  priv_t *    p        = (priv_t *) effp->priv;
+
+  if(!p->text) return stop_png(effp);
+  return stop_text(effp);
 }
 
 static int end(sox_effect_t * effp)
