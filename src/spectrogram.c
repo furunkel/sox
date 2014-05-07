@@ -66,6 +66,7 @@ typedef struct {
   double     * shared, * * shared_ptr;
 
   sox_bool text;
+  sox_bool flat;
 
   /* Per-channel work area */
   int        WORK;  /* Start of work area is marked by this dummy variable. */
@@ -109,7 +110,7 @@ static int getopts(sox_effect_t * effp, int argc, char **argv)
   char const * next;
   int c;
   lsx_getopt_t optstate;
-  lsx_getopt_init(argc, argv, "+S:d:x:X:y:Y:z:Z:q:p:W:w:st:c:AarmlehTo:", NULL, lsx_getopt_flag_none, 1, &optstate);
+  lsx_getopt_init(argc, argv, "+S:d:x:X:y:Y:z:Z:q:p:W:w:st:c:AarmlefhTo:", NULL, lsx_getopt_flag_none, 1, &optstate);
 
   p->dB_range = 120, p->spectrum_points = 249, p->perm = 1; /* Non-0 defaults */
   p->out_name = "spectrogram.png", p->comment = "Created by SoX";
@@ -132,6 +133,7 @@ static int getopts(sox_effect_t * effp, int argc, char **argv)
     case 'm': p->monochrome       = sox_true;   break;
     case 'l': p->light_background = sox_true;   break;
     case 'e': p->text             = sox_true;   break;
+    case 'f': p->flat             = sox_true;   break;
     case 'h': p->high_colour      = sox_true;   break;
     case 'T': p->truncate         = sox_true;   break;
     case 't': p->title            = optstate.arg; break;
@@ -663,12 +665,7 @@ static int stop_text(sox_effect_t * effp)
   priv_t *    p        = (priv_t *) effp->priv;
   FILE *      file;
   int         chans    = effp->in_signal.channels;
-  int         c_rows   = p->rows * chans + chans - 1;
-  int         rows     = p->raw? c_rows : below + c_rows + 30 + 20 * !!p->title;
-  int         cols     = p->raw? p->cols : left + p->cols + between + spectrum_width + right;
-  int         i, j, k, base, step, tick_len = 3 - p->no_axes;
-  char        text[200], * prefix;
-  double      limit;
+  int         i, j, k;
 
   free(p->shared);
   if (p->using_stdout) {
@@ -681,6 +678,8 @@ static int stop_text(sox_effect_t * effp)
     }
   }
   lsx_debug("signal-max=%g", p->max);
+
+  fprintf(file, "%lf %lf %lf\n", effp->in_signal.rate / 2.0, p->max, secs(p->cols));
 
   /* Spectrogram */
   for (k = 0; k < chans; ++k) {
